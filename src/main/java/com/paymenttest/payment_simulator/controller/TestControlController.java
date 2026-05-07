@@ -17,8 +17,21 @@ public class TestControlController {
     private static final String JMETER_BIN =
             "C:\\Users\\yelouarnazi\\Desktop\\apache-jmeter-5.6.3\\bin\\jmeter.bat";
 
-    private static final String TEST_FILE =
-            "C:\\Users\\yelouarnazi\\Desktop\\apache-jmeter-5.6.3\\bin\\my tests\\Card Authorization.jmx";
+    private static final String TEST_DIR =
+            "C:\\Users\\yelouarnazi\\Desktop\\apache-jmeter-5.6.3\\bin\\my tests\\";
+
+    private static final Map<String, String> TEST_FILES = Map.of(
+            "card-authorization",    "Card Authorization.jmx",
+            "payment-transaction",   "Payment Transaction.jmx",
+            "insufficient-funds",    "Insufficient Funds.jmx",
+            "duplicate-transaction", "Duplicate Transaction.jmx",
+            "high-load",             "High Load.jmx",
+            "stress-test",           "Stress Test.jmx",
+            "refund-transaction",    "Refund Transaction.jmx",
+            "invalid-card",          "Invalid Card.jmx",
+            "token-expiration",      "Token Expiration.jmx",
+            "atm-withdrawal",        "ATM Withdrawal.jmx"
+    );
 
     private Process jmeterProcess = null;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -29,7 +42,9 @@ public class TestControlController {
     }
 
     @PostMapping("/start")
-    public ResponseEntity<Map<String, Object>> startTest() {
+    public ResponseEntity<Map<String, Object>> startTest(
+            @RequestBody Map<String, String> body) {
+
         if (running.get()) {
             return ResponseEntity.badRequest().body(Map.of(
                     "success", false,
@@ -37,23 +52,23 @@ public class TestControlController {
             ));
         }
 
+        String testKey  = body.getOrDefault("testKey", "card-authorization");
+        String fileName = TEST_FILES.getOrDefault(testKey, "Card Authorization.jmx");
+        String testFile = TEST_DIR + fileName;
+
         try {
             ProcessBuilder pb = new ProcessBuilder(
-                    JMETER_BIN,
-                    "-n",
-                    "-t", TEST_FILE
+                    JMETER_BIN, "-n", "-t", testFile
             );
             pb.redirectErrorStream(true);
             jmeterProcess = pb.start();
             running.set(true);
 
-            // Notify Angular test started
             broadcaster.broadcast(TestResult.builder()
                     .testName("SYSTEM")
                     .status("TEST_STARTED")
                     .build());
 
-            // Monitor process in background
             Thread monitor = new Thread(() -> {
                 try {
                     BufferedReader reader = new BufferedReader(
@@ -68,7 +83,6 @@ public class TestControlController {
                     System.out.println("[JMETER] Monitor error: " + e.getMessage());
                 } finally {
                     running.set(false);
-                    // Notify Angular test stopped
                     broadcaster.broadcast(TestResult.builder()
                             .testName("SYSTEM")
                             .status("TEST_STOPPED")
@@ -81,14 +95,14 @@ public class TestControlController {
 
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "message", "Test started successfully"
+                    "message", "Started: " + fileName
             ));
 
         } catch (Exception e) {
             running.set(false);
             return ResponseEntity.internalServerError().body(Map.of(
                     "success", false,
-                    "message", "Failed to start test: " + e.getMessage()
+                    "message", "Failed to start: " + e.getMessage()
             ));
         }
     }
@@ -101,7 +115,6 @@ public class TestControlController {
                     "message", "No test is currently running"
             ));
         }
-
         try {
             jmeterProcess.destroyForcibly();
             running.set(false);
@@ -111,20 +124,29 @@ public class TestControlController {
                     .build());
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "message", "Test stopped successfully"
+                    "message", "Test stopped"
             ));
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of(
                     "success", false,
-                    "message", "Failed to stop test: " + e.getMessage()
+                    "message", "Failed to stop: " + e.getMessage()
             ));
         }
     }
 
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getStatus() {
-        return ResponseEntity.ok(Map.of(
-                "running", running.get()
-        ));
+        return ResponseEntity.ok(Map.of("running", running.get()));
+    }
+
+    @GetMapping("/list")
+    public ResponseEntity<Object> getTests() {
+        return ResponseEntity.ok(TEST_FILES.entrySet().stream()
+                .map(e -> Map.of(
+                        "key",  e.getKey(),
+                        "name", e.getValue().replace(".jmx", "")
+                ))
+                .toList()
+        );
     }
 }
